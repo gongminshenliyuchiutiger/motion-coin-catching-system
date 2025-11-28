@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>體感接金幣遊戲系統 (含音效版)</title>
+<!-- 引入 Font Awesome -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+    :root {
+        --c-cyan: #00f3ff; --c-gold: #ffd700; --c-danger: #ff3b3b;
+        --c-heal: #39ff14; /* 治療綠色 */
+        --c-dark: #020205; --c-panel: rgba(10, 15, 20, 0.9);
+    }
+    body {
+        margin: 0; background: var(--c-dark); color: #fff;
+        font-family: 'Segoe UI', sans-serif; overflow: hidden;
+        height: 100vh; width: 100vw; user-select: none;
+    }
+
+    /* 容器設定 */
+    #game-wrapper { position: absolute; inset: 0; }
+    
+    /* 鏡像層：顯示 Video 和 動態軌跡 (翻轉) */
+    #mirror-layer { 
+        position: absolute; inset: 0; 
+        transform: scaleX(-1); 
+        z-index: 1; 
+    }
+    
+    /* 遊戲層：顯示掉落物和UI文字 (不翻轉) */
+    #game-canvas { 
+        position: absolute; inset: 0; 
+        z-index: 2; 
+    }
+
+    video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.8; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+    /* 背景網格 */
+    .grid-bg {
+        position: absolute; inset: 0; z-index: 0;
+        background-image: linear-gradient(#ffd70010 1px, transparent 1px),
+                          linear-gradient(90deg, #ffd70010 1px, transparent 1px);
+        background-size: 50px 50px; pointer-events: none;
+    }
+
+    /* UI 層 */
+    #ui-layer {
+        position: absolute; inset: 0; z-index: 10; pointer-events: none;
+        display: flex; flex-direction: column; justify-content: space-between;
+    }
+
+    /* 頂部資訊列 */
+    #top-bar {
+        padding: 20px; display: flex; justify-content: space-between; align-items: center;
+        background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+        font-weight: bold; font-size: 24px; text-shadow: 0 0 10px #000;
+        opacity: 0; transition: 0.5s; pointer-events: auto; /*改為 auto 以便點擊靜音*/
+    }
+    .left-group { display: flex; gap: 20px; align-items: center; }
+    .score-box { color: var(--c-cyan); display: flex; gap: 10px; align-items: center; }
+    .score-val { font-size: 32px; color: #fff; font-family: 'Courier New', monospace; }
+    
+    .lives-box { color: var(--c-danger); display: flex; gap: 5px; }
+    .heart { color: var(--c-danger); animation: beat 1s infinite; }
+    @keyframes beat { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }
+
+    /* 靜音按鈕 */
+    #sound-btn {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        color: #fff; padding: 5px 10px; border-radius: 5px;
+        cursor: pointer; font-size: 18px; transition: 0.3s;
+    }
+    #sound-btn:hover { background: rgba(255, 255, 255, 0.3); }
+
+    /* 啟動/結束面板 */
+    .panel {
+        position: absolute; top: 50%; left: 50%; 
+        transform: translate(-50%, -50%);
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: var(--c-panel); border: 2px solid var(--c-gold);
+        padding: 40px 60px; 
+        backdrop-filter: blur(10px); z-index: 20;
+        box-shadow: 0 0 50px rgba(255, 215, 0, 0.3); 
+        border-radius: 15px; text-align: center;
+        transition: 0.3s; pointer-events: auto;
+    }
+    .panel h1 { 
+        font-size: 3rem; color: var(--c-gold); 
+        margin: 0 0 10px 0; text-transform: uppercase;
+        text-shadow: 0 0 20px var(--c-gold);
+    }
+    .panel p { color: #fff; margin-bottom: 30px; font-size: 1.2rem; line-height: 1.6; }
+    .highlight { color: var(--c-cyan); font-weight: bold; }
+    .danger-text { color: var(--c-danger); font-weight: bold; }
+    .heal-text { color: var(--c-heal); font-weight: bold; }
+
+    /* 按鈕樣式 */
+    .btn {
+        background: linear-gradient(45deg, #ffae00, #ffd700);
+        border: none; color: #000;
+        padding: 15px 50px; font-size: 20px; font-weight: 800;
+        cursor: pointer; clip-path: polygon(15px 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%, 0 15px);
+        transition: 0.2s; box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+    }
+    .btn:hover { transform: scale(1.05); filter: brightness(1.2); }
+    .btn:active { transform: scale(0.95); }
+
+    .hidden { display: none !important; }
+
+    /* --- 吉祥物樣式 --- */
+    .mascot-container {
+        position: absolute; bottom: 40px; left: 20px;
+        width: 120px; height: auto;
+        z-index: 30; pointer-events: auto;
+        transition: transform 0.2s;
+    }
+    .mascot-container img {
+        width: 100%; display: block;
+        filter: drop-shadow(0 0 5px rgba(0,0,0,0.5));
+        transition: filter 0.2s;
+    }
+    
+    /* 霓虹抖動動畫 */
+    @keyframes neon-shake {
+        0% { transform: translate(1px, 1px) rotate(0deg); filter: drop-shadow(0 0 10px #ff0000); }
+        10% { transform: translate(-1px, -2px) rotate(-1deg); filter: drop-shadow(0 0 15px #ff7f00); }
+        20% { transform: translate(-3px, 0px) rotate(1deg); filter: drop-shadow(0 0 10px #ffff00); }
+        30% { transform: translate(3px, 2px) rotate(0deg); filter: drop-shadow(0 0 15px #00ff00); }
+        40% { transform: translate(1px, -1px) rotate(1deg); filter: drop-shadow(0 0 10px #0000ff); }
+        50% { transform: translate(-1px, 2px) rotate(-1deg); filter: drop-shadow(0 0 15px #4b0082); }
+        60% { transform: translate(-3px, 1px) rotate(0deg); filter: drop-shadow(0 0 10px #9400d3); }
+        70% { transform: translate(3px, 1px) rotate(-1deg); filter: drop-shadow(0 0 15px #ff00ff); }
+        80% { transform: translate(-1px, -1px) rotate(1deg); filter: drop-shadow(0 0 10px #00f3ff); }
+        90% { transform: translate(1px, 2px) rotate(0deg); filter: drop-shadow(0 0 15px #ffffff); }
+        100% { transform: translate(1px, -2px) rotate(-1deg); filter: drop-shadow(0 0 10px #ff0000); }
+    }
+
+    .mascot-container:hover img {
+        animation: neon-shake 0.4s infinite linear;
+    }
+
+    /* --- 版權頁尾 --- */
+    .footer {
+        position: absolute; bottom: 10px; width: 100%;
+        text-align: center; color: rgba(255, 255, 255, 0.6);
+        font-size: 12px; letter-spacing: 1px;
+        text-shadow: 0 1px 2px #000;
+        pointer-events: none; z-index: 25;
+    }
+
+    /* 手機適配 */
+    @media (max-width: 768px) {
+        .panel { width: 85%; padding: 30px 20px; }
+        .panel h1 { font-size: 2rem; }
+        #top-bar { padding: 10px 15px; flex-direction: row; flex-wrap: wrap; }
+        .score-box { font-size: 18px; }
+        .score-val { font-size: 24px; }
+        .mascot-container { width: 80px; bottom: 35px; left: 10px; }
+        .footer { font-size: 10px; bottom: 5px; }
+    }
+</style>
+</head>
+<body>
+    <div class="grid-bg"></div>
+    
+    <div id="game-wrapper">
+        <!-- 鏡像層：顯示視訊與動態捕捉的光點 -->
+        <div id="mirror-layer">
+            <video id="vid" autoplay playsinline muted></video>
+            <canvas id="motion-cvs"></canvas>
+        </div>
+        <!-- 遊戲層：顯示掉落物、特效、分數 (不鏡像) -->
+        <canvas id="game-canvas"></canvas>
+    </div>
+    
+    <div id="ui-layer">
+        <div id="top-bar">
+            <div class="left-group">
+                <!-- 靜音開關 -->
+                <button id="sound-btn" onclick="toggleMute()"><i class="fas fa-volume-up"></i></button>
+                <div class="score-box">
+                    <i class="fas fa-coins"></i> <span class="score-val" id="scoreDisplay">0</span>
+                </div>
+            </div>
+            <div class="lives-box" id="livesDisplay">
+                <i class="fas fa-heart heart"></i><i class="fas fa-heart heart"></i><i class="fas fa-heart heart"></i>
+            </div>
+        </div>
+
+        <!-- 吉祥物 -->
+        <div class="mascot-container" title="Chill Guy">
+            <img src="image/LiyuChillGuy.svg" onerror="this.src='https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/React.svg/512px-React.svg.png'" alt="LiyuChillGuy">
+        </div>
+
+        <!-- 頁尾 -->
+        <div class="footer">Copyright © Liyuchiutiger Gongminshen</div>
+
+        <!-- 啟動畫面 -->
+        <div class="panel" id="start-panel">
+            <h1>體感接金幣系統</h1>
+            <p>
+                接住金幣 💰 得分<br>
+                避開炸彈 <span class="danger-text">💣</span><br>
+                接住愛心 <span class="heal-text">💖</span> 補血
+            </p>
+            <button class="btn" onclick="initGame()">開始遊戲 START</button>
+        </div>
+
+        <!-- 結束畫面 -->
+        <div class="panel hidden" id="game-over-panel">
+            <h1>GAME OVER</h1>
+            <p>最終得分</p>
+            <h2 style="font-size: 4rem; margin: 0 0 30px; color: #fff;" id="final-score">0</h2>
+            <button class="btn" onclick="restartGame()">再玩一次 RESTART</button>
+        </div>
+    </div>
+
+    <script>
+        const $ = id => document.getElementById(id);
+        const vid = $('vid');
+        const mCvs = $('motion-cvs'), mCtx = mCvs.getContext('2d');
+        const gCvs = $('game-canvas'), gCtx = gCvs.getContext('2d');
+        const tmpCvs = document.createElement('canvas'), tmpCtx = tmpCvs.getContext('2d', { willReadFrequently: true });
+        
+        let w, h, ch;
+        let prevData = null;
+        let gameActive = false;
+        let score = 0;
+        let lives = 3;
+        const MAX_LIVES = 5; 
+        let items = []; 
+        let motionPoints = []; 
+        let animationFrameId;
+
+        // --- 音效管理器 (Web Audio API) ---
+        class SoundManager {
+            constructor() {
+                this.ctx = null;
+                this.muted = false;
+                this.masterGain = null;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    this.masterGain = this.ctx.createGain();
+                    this.masterGain.gain.value = 0.3; // 預設音量
+                    this.masterGain.connect(this.ctx.destination);
+                } else if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+
+            toggleMute() {
+                this.muted = !this.muted;
+                const btn = $('sound-btn').querySelector('i');
+                if(this.muted) {
+                    if(this.masterGain) this.masterGain.gain.setValueAtTime(0, this.ctx.currentTime);
+                    btn.className = 'fas fa-volume-mute';
+                } else {
+                    if(this.masterGain) this.masterGain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                    btn.className = 'fas fa-volume-up';
+                }
+            }
+
+            playTone(freq, type, duration, slideTo = null) {
+                if (!this.ctx || this.muted) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                if (slideTo) {
+                    osc.frequency.linearRampToValueAtTime(slideTo, this.ctx.currentTime + duration);
+                }
+
+                gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + duration);
+            }
+
+            playCoin() { this.playTone(1200, 'sine', 0.1); }
+            playDiamond() { 
+                this.playTone(1500, 'sine', 0.1); 
+                setTimeout(() => this.playTone(2000, 'sine', 0.2), 100);
+            }
+            playBomb() { this.playTone(150, 'sawtooth', 0.4, 10); } // 頻率向下滑動模擬爆炸
+            playHeal() { this.playTone(400, 'triangle', 0.3, 800); } // 頻率向上滑動模擬升級
+            playStart() {
+                this.playTone(440, 'sine', 0.2); // A4
+                setTimeout(() => this.playTone(554, 'sine', 0.2), 100); // C#5
+                setTimeout(() => this.playTone(659, 'sine', 0.4), 200); // E5
+            }
+            playGameOver() {
+                this.playTone(440, 'triangle', 0.3);
+                setTimeout(() => this.playTone(415, 'triangle', 0.3), 300);
+                setTimeout(() => this.playTone(392, 'triangle', 0.8), 600);
+            }
+        }
+
+        const sfx = new SoundManager();
+
+        // 遊戲設定
+        const CFG = {
+            cw: 64, // 偵測寬度
+            thresh: 25, // 靈敏度
+            spawnRate: 40, 
+            gravity: 4, 
+            hitRadius: 40 
+        };
+
+        // 掉落物
+        class Item {
+            constructor() {
+                this.r = Math.random();
+                
+                if (this.r > 0.97) { 
+                    this.type = 'heart'; this.val = 0; this.icon = '💖'; this.speed = CFG.gravity * 1.2; 
+                }
+                else if (this.r > 0.90) { 
+                    this.type = 'diamond'; this.val = 50; this.icon = '💎'; this.speed = CFG.gravity * 1.5; 
+                }
+                else if (this.r > 0.70) { 
+                    this.type = 'bomb'; this.val = -1; this.icon = '💣'; this.speed = CFG.gravity * 0.8; 
+                }
+                else { 
+                    this.type = 'gold'; this.val = 10; this.icon = '💰'; this.speed = CFG.gravity; 
+                }
+                
+                this.size = 40;
+                this.x = Math.random() * (w - 60) + 30;
+                this.y = -50;
+                this.active = true;
+                this.angle = 0;
+                this.rotSpeed = (Math.random() - 0.5) * 0.1;
+            }
+            update() {
+                this.y += this.speed;
+                this.angle += this.rotSpeed;
+                if (this.y > h) this.active = false;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                ctx.font = `${this.size}px Arial`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(this.icon, 0, 0);
+                ctx.restore();
+            }
+        }
+
+        let particles = [];
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x; this.y = y;
+                this.vx = (Math.random() - 0.5) * 10;
+                this.vy = (Math.random() - 0.5) * 10;
+                this.life = 1.0;
+                this.color = color;
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy;
+                this.life -= 0.05;
+            }
+            draw(ctx) {
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        const resize = () => {
+            w = window.innerWidth;
+            h = window.innerHeight;
+            [mCvs, gCvs].forEach(c => { c.width = w; c.height = h; });
+            if (vid.videoWidth) {
+                ch = Math.floor(CFG.cw * (vid.videoHeight / vid.videoWidth));
+                tmpCvs.width = CFG.cw; tmpCvs.height = ch;
+            }
+        };
+        window.onresize = resize;
+
+        async function initGame() {
+            // 初始化音效 (必須在使用者點擊後)
+            sfx.init();
+            sfx.playStart();
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, 
+                    audio: false 
+                });
+                vid.srcObject = stream;
+                vid.onloadedmetadata = () => {
+                    vid.play();
+                    resize();
+                    startGameLoop();
+                };
+            } catch (e) {
+                console.error(e);
+                alert("無法啟動攝影機，請確認瀏覽器權限或是使用 HTTPS 連線。");
+            }
+        }
+
+        function startGameLoop() {
+            $('start-panel').classList.add('hidden');
+            $('game-over-panel').classList.add('hidden');
+            $('top-bar').style.opacity = 1;
+            
+            score = 0;
+            lives = 3;
+            items = [];
+            particles = [];
+            updateUI();
+            gameActive = true;
+            loop();
+        }
+
+        function restartGame() {
+            sfx.init(); // 確保重新開始時音效狀態正確
+            sfx.playStart();
+            startGameLoop();
+        }
+
+        function toggleMute() {
+            sfx.toggleMute();
+        }
+
+        function gameOver() {
+            gameActive = false;
+            sfx.playGameOver();
+            $('final-score').innerText = score;
+            $('game-over-panel').classList.remove('hidden');
+            $('top-bar').style.opacity = 0;
+        }
+
+        function updateUI() {
+            $('scoreDisplay').innerText = score;
+            // 動態產生愛心
+            const hearts = Array(lives).fill('<i class="fas fa-heart heart"></i>').join('');
+            $('livesDisplay').innerHTML = hearts;
+        }
+
+        function detectMotion() {
+            if (!vid.videoWidth) return;
+            tmpCtx.drawImage(vid, 0, 0, CFG.cw, ch);
+            const frame = tmpCtx.getImageData(0, 0, CFG.cw, ch);
+            const d = frame.data;
+            
+            motionPoints = [];
+            mCtx.clearRect(0, 0, w, h);
+
+            if (prevData) {
+                mCtx.fillStyle = "rgba(0, 243, 255, 0.3)"; 
+                for (let y = 0; y < ch; y++) {
+                    for (let x = 0; x < CFG.cw; x++) {
+                        const i = (y * CFG.cw + x) * 4;
+                        const diff = Math.abs(d[i+1] - prevData[i+1]);
+                        
+                        if (diff > CFG.thresh) {
+                            const visualX = x * (w / CFG.cw); 
+                            const visualY = y * (h / ch);
+                            mCtx.fillRect(visualX, visualY, w/CFG.cw, h/ch);
+                            
+                            // 座標鏡像修正
+                            const gameX = (CFG.cw - x - 1) * (w / CFG.cw);
+                            const gameY = visualY;
+                            motionPoints.push({x: gameX, y: gameY});
+                        }
+                    }
+                }
+            }
+            prevData = d; 
+        }
+
+        let frameCount = 0;
+        function loop() {
+            if (!gameActive) return;
+
+            detectMotion();
+            gCtx.clearRect(0, 0, w, h);
+
+            frameCount++;
+            if (frameCount % CFG.spawnRate === 0) {
+                items.push(new Item());
+                if (frameCount % 500 === 0 && CFG.spawnRate > 10) CFG.spawnRate -= 2;
+            }
+
+            for (let i = items.length - 1; i >= 0; i--) {
+                let item = items[i];
+                item.update();
+                item.draw(gCtx);
+
+                let hit = false;
+                if (!item.active) {
+                    items.splice(i, 1);
+                    continue;
+                }
+
+                for (let mp of motionPoints) {
+                    const dx = item.x - mp.x;
+                    const dy = item.y - mp.y;
+                    if (dx*dx + dy*dy < CFG.hitRadius * CFG.hitRadius) {
+                        hit = true; break;
+                    }
+                }
+
+                if (hit) {
+                    // --- 處理補血邏輯 ---
+                    if (item.type === 'heart') {
+                        if (lives < MAX_LIVES) {
+                            lives++;
+                            updateUI();
+                        }
+                        sfx.playHeal(); // 播放補血音效
+                        createExplosion(item.x, item.y, '#39ff14');
+                    }
+                    // --- 處理扣血邏輯 ---
+                    else if (item.type === 'bomb') {
+                        lives--;
+                        sfx.playBomb(); // 播放炸彈音效
+                        createExplosion(item.x, item.y, '#ff3b3b');
+                        updateUI();
+                        if (lives <= 0) gameOver();
+                    } 
+                    // --- 處理得分邏輯 ---
+                    else {
+                        score += item.val;
+                        // 播放得分音效
+                        if(item.type === 'diamond') sfx.playDiamond();
+                        else sfx.playCoin();
+                        
+                        createExplosion(item.x, item.y, item.type === 'diamond' ? '#00f3ff' : '#ffd700');
+                        updateUI();
+                    }
+                    items.splice(i, 1);
+                }
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.update();
+                p.draw(gCtx);
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+
+            animationFrameId = requestAnimationFrame(loop);
+        }
+
+        function createExplosion(x, y, color) {
+            for(let i=0; i<10; i++) particles.push(new Particle(x, y, color));
+            gCtx.save();
+            gCtx.beginPath();
+            gCtx.strokeStyle = color;
+            gCtx.lineWidth = 3;
+            gCtx.arc(x, y, 50, 0, Math.PI*2);
+            gCtx.stroke();
+            gCtx.restore();
+        }
+    </script>
+</body>
+</html>
