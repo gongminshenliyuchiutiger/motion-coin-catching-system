@@ -56,7 +56,7 @@
         padding: 20px; display: flex; justify-content: space-between; align-items: center;
         background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
         font-weight: bold; font-size: 24px; text-shadow: 0 0 10px #000;
-        opacity: 0; transition: 0.5s; pointer-events: auto; /*改為 auto 以便點擊靜音*/
+        opacity: 0; transition: 0.5s; pointer-events: auto;
     }
     .left-group { display: flex; gap: 20px; align-items: center; }
     .score-box { color: var(--c-cyan); display: flex; gap: 10px; align-items: center; }
@@ -86,9 +86,15 @@
         box-shadow: 0 0 50px rgba(255, 215, 0, 0.3); 
         border-radius: 15px; text-align: center;
         transition: 0.3s; pointer-events: auto;
+        /* 確保面板寬度在手機上足夠 */
+        width: auto;
+        max-width: 90%;
     }
     .panel h1 { 
-        font-size: 3rem; color: var(--c-gold); 
+        /* 修改處：使用 clamp 進行響應式縮放，並強制不換行 */
+        font-size: clamp(1.2rem, 6vw, 3rem); 
+        white-space: nowrap;
+        color: var(--c-gold); 
         margin: 0 0 10px 0; text-transform: uppercase;
         text-shadow: 0 0 20px var(--c-gold);
     }
@@ -153,8 +159,10 @@
 
     /* 手機適配 */
     @media (max-width: 768px) {
-        .panel { width: 85%; padding: 30px 20px; }
-        .panel h1 { font-size: 2rem; }
+        /* 修改處：移除固定寬度，改用 max-width，並調整 padding */
+        .panel { width: 90%; padding: 30px 10px; }
+        /* 修改處：h1 字體已經由 clamp 控制，這裡不需要再覆蓋，只需確保它不換行 */
+        
         #top-bar { padding: 10px 15px; flex-direction: row; flex-wrap: wrap; }
         .score-box { font-size: 18px; }
         .score-val { font-size: 24px; }
